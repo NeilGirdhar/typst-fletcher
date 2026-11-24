@@ -31,25 +31,33 @@
   edge(<a>, "d", <c>, "->", shift: (0pt, 6pt)),
 )
 
-// Equal pairs (black) match single shifts (red) on lines, arcs, corners, and polylines.
-#let compare(..args) = diagram(
+// A single shift moves the ends before snapping, so they meet the node outlines.
+#let fan(..args) = diagram(
   node-stroke: 0.5pt,
+  node-shape: circle,
   node((0, 0), $A$, name: <a>),
   node((2, 1), $B$, name: <b>),
-  edge(<a>, ..args, <b>, stroke: 4pt + red.transparentize(50%), shift: 6pt),
-  edge(<a>, ..args, <b>, "->", shift: (6pt, 6pt)),
+  edge(<a>, ..args, <b>, stroke: gray),
+  edge(<a>, ..args, <b>, "->", shift: +6pt),
+  edge(<a>, ..args, <b>, "->", shift: -6pt),
 )
-#compare()
-#compare(bend: 40deg)
-#compare(corner: "-|")
-#compare("r,d")
-#compare((rel: (1.5, 0.3)))
+#fan()
+#fan(bend: 40deg)
+#fan(corner: "-|")
+#fan("r,d")
+#fan((rel: (1.5, 0.3)))
 
-// The legs between the ends of a polyline step evenly between the two shifts.
+// Polylines shift only their first and last legs; the legs between stay on the grid.
 #diagram(
-  node-stroke: 0.5pt,
-  node((0, 0), $A$, name: <a>),
-  node((2, 1), $B$, name: <b>),
-  edge(<a>, "r,d", <b>, stroke: gray),
-  edge(<a>, "r,d", <b>, "->", shift: (-6pt, 6pt)),
+  debug: "grid.lines",
+  node-stroke: 1pt,
+  node-shape: "circle",
+  node((0, 0), `A`, inset: 5pt),
+  edge("r,d", "->", shift: 0, stroke: black),
+  edge("r,d", "->", shift: 5pt, stroke: green),
+  edge("d,r", "->", shift: (0, 5pt), stroke: orange),
+  edge("d,r", "->", shift: (5pt, 0), stroke: blue),
+  edge("rr,dd,l,u", "->", shift: (-5pt, 0pt), stroke: fuchsia),
+  node((1, 1), `B`, inset: 5pt),
+  node((2, 2)),
 )

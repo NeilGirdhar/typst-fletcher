@@ -377,37 +377,38 @@
   drawables.first()
 }
 
-/// Move the vertices of an edge sideways, for a @edge-shift given as a pair `(start, end)`.
+/// Whether an edge applies its @edge-shift by moving its vertices before snapping.
 ///
-/// Shifts go to the side that a single shift of the same sign moves the whole edge. A polyline
-/// (a `line` edge with three or more vertices) offsets its first leg by `start`, its last leg by
-/// `end`, and the legs between by amounts stepping evenly from one to the other; each corner
-/// moves to where its two offset legs meet, so every leg stays parallel to where it was and
-/// equal shifts match a single shift. Any other edge moves only its end vertices, each
-/// perpendicular to the path's direction at that end, and its kind redraws the path through
+/// This needs a start and an end vertex that the edge's kind draws the path through, which
+/// excludes single-vertex edges such as loops and edges wrapping CeTZ objects. Those apply a
+/// single shift as a path effect after snapping instead.
+/// [internal]
+#let shifts-vertices(edge) = {
+  let single-vertex = EDGE_KINDS.at(edge.shape.kind, default: (:)).at("n-vertices", default: none) == 1
+  edge.vertices.len() >= 2 and not single-vertex and edge.shape.kind != "cetz"
+}
+
+/// Move the vertices of an edge sideways by its @edge-shift, a pair `(start, end)`.
+///
+/// Positive shifts move the edge to the left of its direction of travel. A polyline (a
+/// `line` edge with three or more vertices) offsets its first leg by `start` and its last leg by
+/// `end`, and leaves the legs between in place. Each corner moves to where its two offset legs
+/// meet, so every leg stays parallel to where it was. Any other edge moves only its end vertices,
+/// each perpendicular to the path's direction at that end, and its kind redraws the path through
 /// them: an arc keeps its bend angle, so equal shifts give a concentric arc.
 ///
 /// The vertices move before snapping, so a shifted edge still meets the outline of the node it
 /// snaps to.
 /// [internal]
-#let apply-end-shifts(ctx, edge) = {
-  let n = edge.vertices.len()
-  let single-vertex = EDGE_KINDS.at(edge.shape.kind, default: (:)).at("n-vertices", default: none) == 1
-  if n < 2 or single-vertex or edge.shape.kind == "cetz" {
-    utils.error(
-      "`shift` can be a pair `(start, end)` only for edges with a start and an end vertex; got a #0 edge. Use a single shift instead.",
-      edge.shape.kind,
-    )
-  }
-
+#let shift-vertices(ctx, edge) = {
   // resolved shifts are multiples of the stroke thickness; convert them to canvas units
   let thickness = edge.style.stroke.thickness.to-absolute()
   let (start, end) = edge.style.shift.map(s => s * thickness / ctx.length)
 
-  // Work in the drawable's coordinates, where the single shift is defined.
+  // Work in the drawable's coordinates, where the side of a path is defined.
   let to-drawable(pt) = cetz.util.apply-transform(ctx.transform, pt)
   let to-vertex(pt) = cetz.util.revert-transform(ctx.transform, pt)
-  // the unit vector to the side to which a positive single shift moves a straight segment
+  // the unit vector to the left of a straight segment, to which a positive shift moves it
   let side(direction) = {
     let (dx, dy, ..) = direction
     if dx == 0 and dy == 0 { return (0., 0., 0.) }
@@ -415,6 +416,7 @@
   }
   let offset(pt, normal, distance) = cetz.vector.add(pt, cetz.vector.scale(normal, distance))
 
+  let n = edge.vertices.len()
   if edge.shape.kind != "line" or n == 2 {
     let (dir-start, dir-end) = paths.end-directions(get-edge-drawable(ctx, edge))
     let (first, .., last) = edge.vertices.map(to-drawable)
@@ -425,7 +427,7 @@
 
   let pts = edge.vertices.map(to-drawable)
   let normals = range(n - 1).map(i => side(cetz.vector.sub(pts.at(i + 1), pts.at(i))))
-  let distances = range(n - 1).map(i => utils.lerp(start, end, i / (n - 2)))
+  let distances = (start, ..(0,) * (n - 3), end)
 
   // the point offset by `d1` along `n1` and by `d2` along `n2` from the corner at `pt`
   let corner(pt, (n1, d1), (n2, d2)) = {
@@ -492,10 +494,16 @@
 
   edge = apply-pre-snapping-adjustments(ctx, edge, snap-objects)
 
-  // A pair shift moves the vertices, so the path effects below see no further shift.
-  if type(edge.style.shift) == array {
-    edge = apply-end-shifts(ctx, edge)
+  // Shifting the vertices leaves no shift for the path effects below.
+  if shifts-vertices(edge) {
+    edge.style.shift = utils.as-pair(edge.style.shift)
+    if edge.style.shift != (0, 0) { edge = shift-vertices(ctx, edge) }
     edge.style.shift = 0
+  } else if type(edge.style.shift) == array {
+    utils.error(
+      "`shift` can be a pair `(start, end)` only for edges with a start and an end vertex; got a #0 edge. Use a single shift instead.",
+      edge.shape.kind,
+    )
   }
 
   let drawable = get-edge-drawable(ctx, edge)
@@ -1055,10 +1063,9 @@
   /// Numbers are multiples of the stroke thickness.
   ///
   /// A pair `(start, end)` shifts the two ends of the edge independently, perpendicular to the
-  /// edge at each end. This is useful for fanning several edges into or out of one node.
-  /// On an edge with corners, the first leg shifts by `start`, the last leg by `end`, and any
-  /// legs between by amounts stepping evenly from one to the other. Equal values give the same
-  /// path as a single shift.
+  /// edge at each end. This is useful for fanning several edges into or out of one node, and a
+  /// single shift is the same as a pair of equal values. On an edge with corners, the first leg
+  /// shifts by `start` and the last leg by `end`, and any legs between stay in place.
   ///
   /// #example(```typ
   /// #diagram(
@@ -1071,9 +1078,9 @@
   /// )
   /// ```)
   ///
-  /// A pair moves the ends before the edge snaps to nodes, so the shifted ends still meet the
-  /// node outlines. Edges with a single vertex, such as loops, and edges wrapping CeTZ objects
-  /// accept only a single shift.
+  /// The ends move before the edge snaps to nodes, so the shifted ends still meet the node
+  /// outlines. Edges with a single vertex, such as loops, and edges wrapping CeTZ objects accept
+  /// only a single shift, which offsets the whole path after snapping.
   /// -> length | number | array
   shift: 0,
   /// Radius of curvature for rounded corners.
